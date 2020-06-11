@@ -19,6 +19,13 @@ import ManipulatorCommonInterface_DataTypes_idl as DATATYPES_IDL
 import ManipulatorCommonInterface_Common_idl as COMMON_IDL
 import math
 
+msg_unavailable = 'Robot is unavailable'
+def ng(msg=''):
+    return DATATYPES_IDL._0_JARA_ARM.RETURN_ID(DATATYPES_IDL._0_JARA_ARM.NG, msg)
+
+
+def ok(msg=''):
+    return DATATYPES_IDL._0_JARA_ARM.RETURN_ID(DATATYPES_IDL._0_JARA_ARM.OK, msg)
 
 class ManipulatorCommonInterface_Middle_i (JARA_ARM__POA.ManipulatorCommonInterface_Middle):
     """
@@ -34,7 +41,7 @@ class ManipulatorCommonInterface_Middle_i (JARA_ARM__POA.ManipulatorCommonInterf
         Initialise member variables here
         """
         self._joint_max_speed_deg = [180, 180, 180, 180, 180, 180]
-        self._home = [0, -1.57, 0, -1.57, 0, 0]
+        self._home = [0, -math.pi/2, 0, -math.pi/2, 0, 0]
 
         self.MIDDLE_IDL_STATE_NORMAL = 0
         self.MIDDLE_IDL_STATE_PAUSE = 1
@@ -53,16 +60,33 @@ class ManipulatorCommonInterface_Middle_i (JARA_ARM__POA.ManipulatorCommonInterf
         self._controller = None
 
     @property
+    def unavailable(self):
+        return self._controller is None
+
+    @property
+    def available(self):
+        return self._controller is not None
+
+    @property
     def middle_idl_state(self):
         return self._middle_idl_state
 
+    def _do(self, method, *args, **kwargs):
+        if self._controller:
+            if getattr(self._controller, method)(*args, **kwargs): return ok()
+        return ng('ERROR. Robot is unavailable.')
+    
+    # RETURN_ID openGripper()
+    def openGripper(self):
+        return self._do('open_gripper')
+    
     # RETURN_ID closeGripper()
     def closeGripper(self):
-        if self._controller:
-            self._controller.close_gripper()
-            return DATATYPES_IDL._0_JARA_ARM.RETURN_ID(DATATYPES_IDL._0_JARA_ARM.OK, '')
-        else:
-            return DATATYPES_IDL._0_JARA_ARM.RETURN_ID(DATATYPES_IDL._0_JARA_ARM.NG, '')
+        return self._do('close_gripper')
+
+    # RETURN_ID moveGripper(in ULONG angleRatio)
+    def moveGripper(self, angleRatio):
+        return self._do('gripper_action', int((100 - angleRatio) * 0.01 * 255))  # 255 is close complete.
 
     # RETURN_ID getBaseOffset(out HgMatrix offset)
     def getBaseOffset(self):
@@ -73,19 +97,14 @@ class ManipulatorCommonInterface_Middle_i (JARA_ARM__POA.ManipulatorCommonInterf
     # RETURN_ID getFeedbackPosCartesian(out CarPosWithElbow pos)
     def getFeedbackPosCartesian(self):
         result, pose = self._controller.get_pose()
-        print(pose)
-        print(dir(pose))
+        if not result:
+            return ng('Robot get_pose failed')
         pos = pose.get_pos()
         ori = pose.get_orient()
         carPos = [[ori[0][0], ori[0][1], ori[0][2], pos[0]], 
                   [ori[1][0], ori[1][1], ori[1][2], pos[1]],
                   [ori[2][0], ori[2][1], ori[2][2], pos[2]]]
-        pos = COMMON_IDL._0_JARA_ARM.CarPosWithElbow(carPos, 0.0, 0)
-        if result:
-            return DATATYPES_IDL._0_JARA_ARM.RETURN_ID(DATATYPES_IDL._0_JARA_ARM.OK, ''), pos
-        else:
-            return DATATYPES_IDL._0_JARA_ARM.RETURN_ID(DATATYPES_IDL._0_JARA_ARM.NG, ''), pos
-        #raise CORBA.NO_IMPLEMENT(0, CORBA.COMPLETED_NO)
+        return DATATYPES_IDL._0_JARA_ARM.RETURN_ID(DATATYPES_IDL._0_JARA_ARM.OK, ''), COMMON_IDL._0_JARA_ARM.CarPosWithElbow(carPos, 0.0, 0)
         # *** Implement me
         # Must return: result, pos
 
@@ -98,7 +117,6 @@ class ManipulatorCommonInterface_Middle_i (JARA_ARM__POA.ManipulatorCommonInterf
     # RETURN_ID getMaxSpeedJoint(out DoubleSeq speed)
     def getMaxSpeedJoint(self):
         max_speed_joint = []
-
         for deg in self._joint_max_speed_deg:
             max_speed_joint.append(math.radians(deg))
 
@@ -122,31 +140,14 @@ class ManipulatorCommonInterface_Middle_i (JARA_ARM__POA.ManipulatorCommonInterf
         # *** Implement me
         # Must return: result, xLimit, yLimit, zLimit
 
-    # RETURN_ID moveGripper(in ULONG angleRatio)
-    def moveGripper(self, angleRatio):
-        if self._controller:
-            self._controller.gripper_action(int((100 - angleRatio) * 0.01 * 255))  # 255 is close complete.
-            return DATATYPES_IDL._0_JARA_ARM.RETURN_ID(DATATYPES_IDL._0_JARA_ARM.OK, '')
-        else:
-            return DATATYPES_IDL._0_JARA_ARM.RETURN_ID(DATATYPES_IDL._0_JARA_ARM.NG, '')
 
     # RETURN_ID moveLinearCartesianAbs(in CarPosWithElbow carPoint)
     def moveLinearCartesianAbs(self, carPoint):
-        pos = carPoint.carPos
-        if self._controller:
-            self._controller.set_pose(pos, timeout=40, vel=self._carVel)
-            return DATATYPES_IDL._0_JARA_ARM.RETURN_ID(DATATYPES_IDL._0_JARA_ARM.OK, '')
-        else:
-            return DATATYPES_IDL._0_JARA_ARM.RETURN_ID(DATATYPES_IDL._0_JARA_ARM.NG, '')
+        return self._do('set_pose', carPoint.carPos, timeout=40, vel=self._carVel)
         
         # RETURN_ID moveLinearCartesianRel(in CarPosWithElbow carPoint)
     def moveLinearCartesianRel(self, carPoint):
-        pos = carPoint.carPos
-        if self._controller:
-            self._controller.add_pose_base(pos, timeout=40, vel=self._carVel)
-            return DATATYPES_IDL._0_JARA_ARM.RETURN_ID(DATATYPES_IDL._0_JARA_ARM.OK, '')
-        else:
-            return DATATYPES_IDL._0_JARA_ARM.RETURN_ID(DATATYPES_IDL._0_JARA_ARM.NG, '')
+        return self._do('add_pose_base', carPoint.carPos, timeout=40, vel=self._carVel)
         
     # RETURN_ID movePTPCartesianAbs(in CarPosWithElbow carPoint)
     def movePTPCartesianAbs(self, carPoint):
@@ -166,30 +167,11 @@ class ManipulatorCommonInterface_Middle_i (JARA_ARM__POA.ManipulatorCommonInterf
 
     # RETURN_ID movePTPJointAbs(in JointPos jointPoints)
     def movePTPJointAbs(self, jointPoints):
-        if self._controller:
-            print("movePTPJointAbs(", jointPoints, ")")
-            self._controller.movej(jointPoints)
-            return DATATYPES_IDL._0_JARA_ARM.RETURN_ID(DATATYPES_IDL._0_JARA_ARM.OK, '')
-        else:
-            return DATATYPES_IDL._0_JARA_ARM.RETURN_ID(DATATYPES_IDL._0_JARA_ARM.NG, '')
+        return self._do('movej', jointPoints)
 
     # RETURN_ID movePTPJointRel(in JointPos jointPoints)
     def movePTPJointRel(self, jointPoints):
-        if self._controller:
-            get_pos = self._controller.getj()
-            joints = [i + j for (i, j) in zip(get_pos, jointPoints)]
-            self._controller.movej(joints)
-            return DATATYPES_IDL._0_JARA_ARM.RETURN_ID(DATATYPES_IDL._0_JARA_ARM.OK, '')
-        else:
-            return DATATYPES_IDL._0_JARA_ARM.RETURN_ID(DATATYPES_IDL._0_JARA_ARM.NG, '')
-
-    # RETURN_ID openGripper()
-    def openGripper(self):
-        if self._controller:
-            self._controller.open_gripper()
-            return DATATYPES_IDL._0_JARA_ARM.RETURN_ID(DATATYPES_IDL._0_JARA_ARM.OK, '')
-        else:
-            return DATATYPES_IDL._0_JARA_ARM.RETURN_ID(DATATYPES_IDL._0_JARA_ARM.NG, '')
+        return self._do('movej', [i + j for i, j in zip(self._controller.getj(), jointPoints)])
 
     # RETURN_ID pause()
     def pause(self):
@@ -286,6 +268,7 @@ class ManipulatorCommonInterface_Middle_i (JARA_ARM__POA.ManipulatorCommonInterf
 
     # RETURN_ID setSpeedJoint(in ULONG spdRatio)
     def setSpeedJoint(self, spdRatio):
+        self._speed_joint = spdRatio
         return DATATYPES_IDL._0_JARA_ARM.RETURN_ID(DATATYPES_IDL._0_JARA_ARM.OK, '')
         # raise CORBA.NO_IMPLEMENT(0, CORBA.COMPLETED_NO)
         # *** Implement me
@@ -306,19 +289,15 @@ class ManipulatorCommonInterface_Middle_i (JARA_ARM__POA.ManipulatorCommonInterf
     # RETURN_ID setHome(in JointPos jointPoint)
     def setHome(self, jointPoint):
         self._home = jointPoint
-        return DATATYPES_IDL._0_JARA_ARM.RETURN_ID(DATATYPES_IDL._0_JARA_ARM.OK, '')
+        return ok()
 
     # RETURN_ID getHome(out JointPos jointPoint)
     def getHome(self):
-        return DATATYPES_IDL._0_JARA_ARM.RETURN_ID(DATATYPES_IDL._0_JARA_ARM.OK, ''), self._home
+        return ok(), self._home
 
     # RETURN_ID goHome()
     def goHome(self):
-        if self._controller:
-            self._controller.movej(self._home)
-            return DATATYPES_IDL._0_JARA_ARM.RETURN_ID(DATATYPES_IDL._0_JARA_ARM.OK, '')
-        else:
-            return DATATYPES_IDL._0_JARA_ARM.RETURN_ID(DATATYPES_IDL._0_JARA_ARM.NG, '')
+        return self._do('movej', self._home)
 
 if __name__ == "__main__":
     import sys

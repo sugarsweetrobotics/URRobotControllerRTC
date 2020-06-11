@@ -2,7 +2,7 @@
 """Universal Robot (URx) controller RTC.
 """
 
-import sys, time, socket
+import sys, time, socket, traceback
 import logging
 from datetime import datetime
 import urx
@@ -16,6 +16,9 @@ __copyright__ = "Copyright 2017, Saburo Takahashi"
 __license__ = "LGPLv3"
 
 
+class TimeoutException(Exception):
+    pass
+
 class URRobotController(object):
     """Universal Robot (URx) controller RTC.
 
@@ -23,6 +26,7 @@ class URRobotController(object):
     """
     # Exceptions
     URxException = urx.urrobot.RobotException
+    TimeoutException = TimeoutException
 
     # Private member
     __instance = None
@@ -365,28 +369,12 @@ class URRobotController(object):
                                vel=self.vel,
                                wait=False)
             self._update_send_time()
-
             time.sleep(0.3)
-            t1 = time.time()
-            """
-            while True:
-                if self.is_moving:
-                    break
-                t2 = time.time()
-                print('Waiting Robot start moving
-                if t2 - t1 > timeout:
-                    logging.error("robot is not moving in " + 
-                                   sys._getframe().f_code.co_name)
-                    return False """
-            while True:
-                print("Waiting for Execution")
-                if not self.__robot.secmon.is_program_running():
-                    break
-                t2 = time.time()
-                if t2 - t1 > timeout:
-                    logging.error("robot is still moving in " + 
-                                   sys._getframe().f_code.co_name)
-                    return False
+            try:
+                self.wait_for_program_running(timeout)
+            except TimeoutException as e:
+                loggin.error("Timeout exception in movej function.")
+                traceback.print_exc()
             return True
         else:
             logging.error("robot is not initialized in " +
@@ -781,28 +769,13 @@ class URRobotController(object):
         if self.__robot:
             pose = self.__robot.set_pose(trans, wait=False, vel=vel)
             self._update_send_time()
-            time.sleep(0.3)
-            t1 = time.time()
-            """
-            while True:
-                if self.is_moving:
-                    break
-                t2 = time.time()
-                print('Waiting Robot start moving
-                if t2 - t1 > timeout:
-                    logging.error("robot is not moving in " + 
-                                   sys._getframe().f_code.co_name)
-                    return False """
-            while True:
-                print("Waiting for Execution")
-                if not self.__robot.secmon.is_program_running():
-                    break
-                t2 = time.time()
-                if t2 - t1 > timeout:
-                    logging.error("robot is still moving in " + 
-                                   sys._getframe().f_code.co_name)
-                    return False
-            
+            time.sleep(0.3)            
+            try:
+                self.wait_for_program_running(timeout)
+            except Exception as e:
+                logging.error("Timeout exception in add_pose_base function.")
+                traceback.print_exc()
+                return False
             return True
         else:
             logging.error("robot is not initialized in " + 
@@ -818,31 +791,34 @@ class URRobotController(object):
             pose = self.__robot.add_pose_base(trans, wait=False, vel=vel)
             self._update_send_time()
             time.sleep(0.3)
-            t1 = time.time()
-            """
-            while True:
-                if self.is_moving:
-                    break
-                t2 = time.time()
-                if t2 - t1 > timeout:
-                    logging.error("robot is not moving in " + 
-                                   sys._getframe().f_code.co_name)
-                    return False """
-            while True:
-                if not self.is_moving:
-                    break
-                t2 = time.time()
-                if t2 - t1 > timeout:
-                    logging.error("robot is still moving in " + 
-                                   sys._getframe().f_code.co_name)
-                    return False
-            
+            try:
+                self.wait_for_program_running(timeout)
+            except Exception as e:
+                logging.error("Timeout exception in add_pose_base function.")
+                traceback.print_exc()
+                return False
             return True
         else:
             logging.error("robot is not initialized in " + 
                           sys._getframe().f_code.co_name)
             return False
+        
     def send_program(self, cmd):
         self.__robot.send_program(cmd)
+
+
+    def wait_for_program_running(self, timeout):
+        t1 = time.time()        
+        while True:
+            if not self.is_program_running:
+                break
+            t2 = time.time()
+            if t2 - t1 > timeout:
+                logging.error("robot is still moving in " + 
+                              sys._getframe().f_code.co_name)
+                raise TimeoutException()
+            
+
+    
 if __name__ == '__main__':
     URRobotController()
